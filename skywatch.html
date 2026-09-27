@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SkyWatch</title>
+
+<!-- Firebase SDK (loaded from Google's own CDN — always available) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+<style>
+/* ── tokens ── */
+:root {
+  --bg:#eaf4ff; --card:#fff; --text:#0f2a43; --sub:#5b7794;
+  --accent:#2b8aef; --me:#2b8aef; --me-t:#fff;
+  --them:#e7edf3; --them-t:#0f2a43;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  box-sizing:border-box;
+}
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d1520;--card:#16202c;--text:#eaf2fb;--sub:#8fa3ba;
+    --them:#22303f;--them-t:#eaf2fb;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d1520;--card:#16202c;--text:#eaf2fb;--sub:#8fa3ba;
+  --them:#22303f;--them-t:#eaf2fb;
+}
+html,body{height:100%;margin:0;scroll-padding-top:env(safe-area-inset-top,0px);}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow-x:hidden;}
+*{box-sizing:border-box;}
+#app{max-width:480px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;position:relative;}
+
+/* ── weather ── */
+#weather{padding:20px 20px 40px;user-select:none;flex:1;}
+.wx-top{text-align:center;padding-top:env(safe-area-inset-top,0px);}
+.wx-city{font-size:22px;font-weight:600;cursor:default;}
+.wx-date{color:var(--sub);font-size:13px;margin-top:2px;}
+.wx-icon{font-size:48px;margin:10px 0 4px;}
+.wx-temp{font-size:72px;font-weight:200;margin:0;cursor:default;line-height:1;}
+.wx-cond{font-size:16px;color:var(--sub);margin-top:4px;}
+.wx-hilo{color:var(--sub);font-size:14px;margin-top:4px;}
+.card{background:var(--card);border-radius:16px;padding:14px 16px;margin-top:18px;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.card h4{margin:0 0 10px;font-size:13px;color:var(--sub);font-weight:600;text-transform:uppercase;letter-spacing:.04em;}
+.row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;font-size:15px;border-top:1px solid rgba(128,128,128,.12);}
+.row:first-child{border-top:none;}
+.row .day{width:60px;color:var(--sub);}
+.row .ic{flex:1;text-align:center;}
+.row .lo{color:var(--sub);margin-right:8px;}
+
+/* invisible panic zone: bottom-right corner */
+#panicZone{position:fixed;bottom:0;right:0;width:80px;height:80px;z-index:5;-webkit-tap-highlight-color:transparent;}
+
+/* ── overlay wrapper ── */
+#overlay{position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;z-index:10;}
+#overlay.show{display:flex;}
+
+/* ── pin screen ── */
+#pinScreen{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:30px;padding-top:calc(30px + env(safe-area-inset-top,0px));}
+.pin-label{font-size:16px;font-weight:600;}
+.pin-dots{display:flex;gap:14px;}
+.pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--sub);background:transparent;transition:background .1s;}
+.pin-dot.filled{background:var(--accent);border-color:var(--accent);}
+.pin-error{color:#d9534f;font-size:13px;height:16px;text-align:center;}
+.keypad{display:grid;grid-template-columns:repeat(3,68px);gap:14px;}
+.keypad button{width:68px;height:68px;border-radius:50%;border:1px solid rgba(128,128,128,.25);background:var(--card);color:var(--text);font-size:22px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.keypad button:active{background:var(--accent);color:#fff;}
+.btn-ghost{background:none;border:none;color:var(--sub);font-size:13px;cursor:pointer;padding:8px;}
+
+/* ── setup screen ── */
+#setupScreen{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:30px;}
+.setup-title{font-size:17px;font-weight:600;}
+.hint{font-size:12px;color:var(--sub);text-align:center;max-width:260px;line-height:1.5;}
+#roomInput{width:100%;max-width:240px;text-align:center;font-size:18px;letter-spacing:.1em;padding:10px;border-radius:10px;border:1px solid rgba(128,128,128,.3);background:var(--card);color:var(--text);}
+.btn-primary{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px 22px;font-size:15px;cursor:pointer;}
+
+/* ── chat screen ── */
+#chatScreen{flex:1;display:flex;flex-direction:column;}
+.chat-hdr{display:flex;align-items:center;gap:10px;padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top,0px));background:var(--card);border-bottom:1px solid rgba(128,128,128,.15);}
+.chat-hdr .hbtn{background:none;border:none;color:var(--accent);font-size:15px;cursor:pointer;padding:4px;}
+.chat-hdr .title{font-weight:600;flex:1;font-size:15px;}
+.chat-hdr .rbadge{font-size:11px;color:var(--sub);}
+.chat-hdr .clearbtn{font-size:13px;color:#c0392b;background:none;border:none;cursor:pointer;padding:4px;}
+#status{font-size:12px;color:var(--sub);text-align:center;padding:4px 16px;min-height:22px;}
+#messages{flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:8px;}
+.bubble{max-width:76%;padding:9px 13px;border-radius:16px;font-size:15px;line-height:1.4;word-wrap:break-word;}
+.me{align-self:flex-end;background:var(--me);color:var(--me-t);border-bottom-right-radius:4px;}
+.them{align-self:flex-start;background:var(--them);color:var(--them-t);border-bottom-left-radius:4px;}
+.ts{font-size:10px;opacity:.55;margin-top:2px;display:block;}
+.chat-inp{display:flex;gap:8px;padding:10px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));background:var(--card);border-top:1px solid rgba(128,128,128,.15);}
+#msgInput{flex:1;border:1px solid rgba(128,128,128,.3);border-radius:20px;padding:9px 14px;font-size:15px;background:var(--bg);color:var(--text);}
+#sendBtn{background:var(--accent);color:#fff;border:none;border-radius:20px;padding:9px 16px;font-size:14px;cursor:pointer;}
+
+/* ── gallery ── */
+#galleryScreen{flex:1;display:flex;flex-direction:column;}
+.gal-hdr{display:flex;align-items:center;gap:10px;padding:14px 16px;padding-top:calc(14px + env(safe-area-inset-top,0px));background:var(--card);border-bottom:1px solid rgba(128,128,128,.15);}
+.gal-hdr button{background:none;border:none;color:var(--accent);font-size:15px;cursor:pointer;padding:4px;}
+.gal-hdr .gal-title{font-weight:600;flex:1;}
+.gal-grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:2px;padding:2px;}
+.gal-grid img{width:100%;aspect-ratio:1;object-fit:cover;cursor:pointer;display:block;}
+.gal-add{display:flex;align-items:center;justify-content:center;aspect-ratio:1;background:var(--them);color:var(--sub);font-size:30px;cursor:pointer;}
+
+/* ── lightbox ── */
+#lightbox{position:fixed;inset:0;background:rgba(0,0,0,.94);display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;z-index:20;}
+#lightbox.show{display:flex;}
+#lbImg{max-width:92%;max-height:78%;object-fit:contain;}
+.lb-close{position:absolute;top:calc(16px + env(safe-area-inset-top,0px));right:16px;color:#fff;font-size:26px;background:none;border:none;cursor:pointer;}
+.lb-del{color:#ff6b6b;background:rgba(255,255,255,.1);border:1px solid rgba(255,100,100,.3);border-radius:8px;padding:8px 20px;font-size:14px;cursor:pointer;}
+
+/* ── sensor debug ── */
+#debugPanel{position:fixed;inset:0;background:rgba(0,0,0,.94);color:#ddd;z-index:30;display:none;flex-direction:column;padding:20px;padding-top:calc(20px + env(safe-area-inset-top,0px));gap:12px;font-family:monospace;font-size:13px;overflow-y:auto;}
+#debugPanel.show{display:flex;}
+#debugPanel h3{margin:0;font-size:15px;color:#fff;}
+#debugPanel input[type=range]{width:100%;}
+#debugPanel button{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:13px;cursor:pointer;align-self:flex-start;}
+.dbg-row{display:flex;gap:8px;}
+.dbg-row span{opacity:.7;}
+.dbg-row b{color:#fff;}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ════ WEATHER DISGUISE ════ -->
+<div id="weather">
+  <div class="wx-top">
+    <div class="wx-city" id="wxCity">Sullivan</div>
+    <div class="wx-date" id="wxDate"></div>
+    <div class="wx-icon">🌤️</div>
+    <div class="wx-temp" id="wxTemp">76°</div>
+    <div class="wx-cond">Mostly Sunny</div>
+    <div class="wx-hilo">H:79°&nbsp;&nbsp;L:56°</div>
+  </div>
+  <div class="card">
+    <h4>Hourly</h4>
+    <div class="row"><span class="day">Now</span><span class="ic">🌤️</span><span>76°</span></div>
+    <div class="row"><span class="day">2 PM</span><span class="ic">☀️</span><span>78°</span></div>
+    <div class="row"><span class="day">3 PM</span><span class="ic">☀️</span><span>79°</span></div>
+    <div class="row"><span class="day">4 PM</span><span class="ic">🌤️</span><span>77°</span></div>
+    <div class="row"><span class="day">5 PM</span><span class="ic">⛅</span><span>73°</span></div>
+  </div>
+  <div class="card">
+    <h4>7-Day Forecast</h4>
+    <div class="row"><span class="day">Today</span><span class="ic">🌤️</span><span class="lo">56°</span><span>79°</span></div>
+    <div class="row"><span class="day">Sun</span><span class="ic">☀️</span><span class="lo">54°</span><span>77°</span></div>
+    <div class="row"><span class="day">Mon</span><span class="ic">⛅</span><span class="lo">58°</span><span>74°</span></div>
+    <div class="row"><span class="day">Tue</span><span class="ic">🌧️</span><span class="lo">60°</span><span>68°</span></div>
+    <div class="row"><span class="day">Wed</span><span class="ic">🌤️</span><span class="lo">55°</span><span>72°</span></div>
+  </div>
+</div>
+
+<!-- Invisible double-tap panic zone — bottom-right corner -->
+<div id="panicZone"></div>
+
+<!-- ════ ALL SECURE SCREENS ════ -->
+<div id="overlay">
+
+  <!-- PIN screen -->
+  <div id="pinScreen">
+    <div class="pin-label">Enter code</div>
+    <div class="pin-dots" id="pinDots"></div>
+    <div class="pin-error" id="pinError"></div>
+    <div class="keypad" id="keypad"></div>
+    <button class="btn-ghost" id="pinCancel">Back to weather</button>
+  </div>
+
+  <!-- Chat setup -->
+  <div id="setupScreen" style="display:none;">
+    <div class="setup-title">Enter room code</div>
+    <div class="hint">Both phones type the same code — any phrase you make up. Nothing is saved after you hide.</div>
+    <input id="roomInput" placeholder="e.g. blue-otter-7" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <button class="btn-primary" id="joinBtn">Join Chat</button>
+    <button class="btn-ghost" id="cancelSetup">Back to weather</button>
+  </div>
+
+  <!-- Chat -->
+  <div id="chatScreen" style="display:none;">
+    <div class="chat-hdr">
+      <button class="hbtn" id="hideBtn">‹ Hide</button>
+      <div class="title">Chat <span class="rbadge" id="roomBadge"></span></div>
+      <button class="clearbtn" id="clearBtn">Clear all</button>
+    </div>
+    <div id="status"></div>
+    <div id="messages"></div>
+    <div class="chat-inp">
+      <input id="msgInput" placeholder="Message…" autocorrect="off">
+      <button id="sendBtn">Send</button>
+    </div>
+  </div>
+
+  <!-- Decoy gallery -->
+  <div id="galleryScreen" style="display:none;">
+    <div class="gal-hdr">
+      <button id="galleryBack">‹ Back</button>
+      <div class="gal-title">Photos</div>
+    </div>
+    <div class="gal-grid" id="galleryGrid">
+      <div class="gal-add" id="galleryAdd">＋</div>
+    </div>
+    <input type="file" id="galleryFile" accept="image/*" multiple style="display:none;">
+  </div>
+
+</div><!-- #overlay -->
+
+<!-- Lightbox -->
+<div id="lightbox">
+  <button class="lb-close" id="lbClose">✕</button>
+  <img id="lbImg" src="" alt="">
+  <button class="lb-del" id="lbDelete">Delete photo</button>
+</div>
+
+<!-- Sensor debug (tap temperature 5x to open) -->
+<div id="debugPanel">
+  <h3>🔧 Sensor Test</h3>
+  <div id="dbgStatus">Waiting for sensor data…</div>
+  <div class="dbg-row"><span>Magnitude:</span> <b id="dbgMag">–</b></div>
+  <div class="dbg-row"><span>Last delta:</span> <b id="dbgDelta">–</b></div>
+  <div class="dbg-row"><span>Peak delta:</span> <b id="dbgPeak">–</b></div>
+  <div class="dbg-row"><span>Threshold:</span> <b id="dbgThreshVal">28</b></div>
+  <input type="range" id="dbgThresh" min="5" max="80" value="28">
+  <div style="opacity:.6;line-height:1.6;">
+    Hold phone normally → watch numbers settle. Do a sharp grab/yank → check Peak.
+    Set threshold just below that peak value. Changes take effect instantly.
+  </div>
+  <button id="dbgClose">Close</button>
+</div>
+
+</div><!-- #app -->
+
+<script>
+// ╔══════════════════════════════════════════════════╗
+// ║  CONFIGURATION — EDIT THIS SECTION BEFORE USE   ║
+// ╚══════════════════════════════════════════════════╝
+
+/*
+  HOW TO SET UP FIREBASE (free, takes ~5 minutes):
+
+  1. Go to https://console.firebase.google.com
+  2. Click "Add project" → give it any name → click through
+  3. On the project dashboard, click the </> icon (Web app)
+  4. Give it any nickname → click "Register app"
+  5. COPY the firebaseConfig values shown and paste them below
+  6. Click "Continue to console"
+  7. In the left menu: Build → Realtime Database → Create database
+  8. Choose "Start in test mode" → Done
+  9. Save this file and drag it onto https://netlify.com to deploy
+*/
+
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyBPxFR-_Nwh8KoM3HBTDOR8818uPfo79sY",
+  authDomain:        "weather-2026-d5ed7.firebaseapp.com",
+  databaseURL:       "https://weather-2026-d5ed7-default-rtdb.firebaseio.com",
+  projectId:         "weather-2026-d5ed7",
+  storageBucket:     "weather-2026-d5ed7.firebasestorage.app",
+  messagingSenderId: "714772362588",
+  appId:             "1:714772362588:web:30c96298c7548f76d57d99"
+};
+
+const REAL_PIN        = '2588';  // Real PIN → opens chat
+const DURESS_PIN      = '6969';  // Duress PIN → opens fake gallery
+const INACTIVITY_SECS = 60;      // Auto-lock after this many seconds of no activity
+let   GRAB_THRESHOLD  = 28;      // Accelerometer sensitivity (tunable in debug panel)
+
+// ╔══════════════════════════════════════════════════╗
+// ║  APP CODE — DO NOT EDIT BELOW THIS LINE          ║
+// ╚══════════════════════════════════════════════════╝
+
+// ── Firebase ──────────────────────────────────────────
+let fbDb = null;
+try {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  fbDb = firebase.database();
+} catch(e) {
+  console.warn('Firebase not ready:', e.message);
+}
+
+// ── Identity: memory only, never persisted ────────────
+const myId = 'u' + Math.random().toString(36).slice(2, 10);
+let savedRoom = '';
+
+// ── DOM refs ──────────────────────────────────────────
+const overlay       = document.getElementById('overlay');
+const pinScreen     = document.getElementById('pinScreen');
+const setupScreen   = document.getElementById('setupScreen');
+const chatScreen    = document.getElementById('chatScreen');
+const galleryScreen = document.getElementById('galleryScreen');
+const messagesEl    = document.getElementById('messages');
+const statusEl      = document.getElementById('status');
+const roomBadge     = document.getElementById('roomBadge');
+const roomInput     = document.getElementById('roomInput');
+const msgInput      = document.getElementById('msgInput');
+const lightbox      = document.getElementById('lightbox');
+const lbImg         = document.getElementById('lbImg');
+const debugPanel    = document.getElementById('debugPanel');
+const wxCity        = document.getElementById('wxCity');
+const wxTemp        = document.getElementById('wxTemp');
+const weather       = document.getElementById('weather');
+
+// ── Show one screen, hide others ─────────────────────
+function showOnly(el) {
+  [pinScreen, setupScreen, chatScreen, galleryScreen].forEach(s => {
+    s.style.display = 'none';
+  });
+  el.style.display = 'flex';
+}
+
+// ── PIN gate ──────────────────────────────────────────
+let pinEntry = '';
+const PIN_LEN = REAL_PIN.length;
+
+function renderDots() {
+  const c = document.getElementById('pinDots');
+  c.innerHTML = '';
+  for (let i = 0; i < PIN_LEN; i++) {
+    const d = document.createElement('div');
+    d.className = 'pin-dot' + (i < pinEntry.length ? ' filled' : '');
+    c.appendChild(d);
+  }
+}
+
+(function buildKeypad() {
+  const kp = document.getElementById('keypad');
+  ['1','2','3','4','5','6','7','8','9','','0','⌫'].forEach(k => {
+    const b = document.createElement('button');
+    b.textContent = k;
+    if (k === '') { b.style.visibility = 'hidden'; kp.appendChild(b); return; }
+    b.addEventListener('click', () => {
+      if (k === '⌫') { pinEntry = pinEntry.slice(0,-1); renderDots(); return; }
+      if (pinEntry.length >= PIN_LEN) return;
+      pinEntry += k;
+      renderDots();
+      if (pinEntry.length === PIN_LEN) setTimeout(checkPin, 80);
+    });
+    kp.appendChild(b);
+  });
+})();
+renderDots();
+
+function checkPin() {
+  const err = document.getElementById('pinError');
+  if (pinEntry === REAL_PIN) {
+    pinEntry = ''; renderDots(); err.textContent = '';
+    savedRoom ? (showOnly(chatScreen), connectRoom(savedRoom)) : showOnly(setupScreen);
+  } else if (pinEntry === DURESS_PIN) {
+    pinEntry = ''; renderDots(); err.textContent = '';
+    showOnly(galleryScreen); renderGallery();
+  } else {
+    err.textContent = 'Wrong code';
+    setTimeout(() => { pinEntry = ''; renderDots(); err.textContent = ''; }, 600);
+  }
+}
+document.getElementById('pinCancel').addEventListener('click', forgetAndHide);
+
+// ── Gesture: tap city name 3x then swipe left ────────
+let tapCount = 0, tapTimer = null, armed = false, armTimer = null;
+
+wxCity.addEventListener('click', () => {
+  enableAccelerometer();
+  if (++tapCount >= 3) {
+    tapCount = 0;
+    armed = true;
+    clearTimeout(armTimer);
+    armTimer = setTimeout(() => { armed = false; }, 2500);
+  }
+  clearTimeout(tapTimer);
+  tapTimer = setTimeout(() => { tapCount = 0; }, 1200);
+});
+
+let touchStartX = null;
+weather.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true });
+weather.addEventListener('touchend', e => {
+  if (touchStartX === null) return;
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  touchStartX = null;
+  if (armed && dx < -60) { armed = false; openApp(); }
+});
+let mouseX = null;
+weather.addEventListener('mousedown', e => { mouseX = e.clientX; });
+weather.addEventListener('mouseup', e => {
+  if (mouseX === null) return;
+  const dx = e.clientX - mouseX; mouseX = null;
+  if (armed && dx < -60) { armed = false; openApp(); }
+});
+
+function openApp() {
+  pinEntry = ''; renderDots();
+  document.getElementById('pinError').textContent = '';
+  overlay.classList.add('show');
+  showOnly(pinScreen);
+  resetInactivity();
+}
+
+// ── Forget & hide ─────────────────────────────────────
+let fbUnsubscribe = null;
+
+function forgetAndHide() {
+  overlay.classList.remove('show');
+  lightbox.classList.remove('show');
+  if (fbUnsubscribe) { fbUnsubscribe(); fbUnsubscribe = null; }
+  savedRoom = '';
+  messagesEl.innerHTML = '';
+  if (roomInput) roomInput.value = '';
+  if (msgInput) msgInput.value = '';
+  statusEl.textContent = '';
+  pinEntry = ''; renderDots();
+  clearInactivity();
+}
+
+document.getElementById('hideBtn').addEventListener('click', forgetAndHide);
+document.getElementById('cancelSetup').addEventListener('click', forgetAndHide);
+document.getElementById('galleryBack').addEventListener('click', forgetAndHide);
+
+// ── Chat ──────────────────────────────────────────────
+document.getElementById('joinBtn').addEventListener('click', () => {
+  const code = roomInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+  if (!code) return;
+  savedRoom = code;
+  showOnly(chatScreen);
+  connectRoom(code);
+});
+
+function connectRoom(code) {
+  if (fbUnsubscribe) { fbUnsubscribe(); fbUnsubscribe = null; }
+  roomBadge.textContent = '#' + code;
+  messagesEl.innerHTML = '';
+
+  if (!fbDb || FIREBASE_CONFIG.apiKey === 'PASTE_API_KEY_HERE') {
+    statusEl.textContent = '⚠ Firebase not configured — fill in your config and redeploy';
+    return;
+  }
+  statusEl.textContent = 'Connecting…';
+  const query = fbDb.ref('rooms/' + code + '/messages').orderByChild('ts').limitToLast(300);
+  const cb = snap => {
+    messagesEl.innerHTML = '';
+    snap.forEach(child => {
+      const m = child.val();
+      addBubble(m.text, m.sender === myId, m.ts);
+    });
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    statusEl.textContent = '';
+  };
+  query.on('value', cb);
+  fbUnsubscribe = () => query.off('value', cb);
+}
+
+function addBubble(text, mine, ts) {
+  const b = document.createElement('div');
+  b.className = 'bubble ' + (mine ? 'me' : 'them');
+  b.textContent = text;
+  if (ts) {
+    const t = document.createElement('span');
+    t.className = 'ts';
+    t.textContent = new Date(ts).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+    b.appendChild(t);
+  }
+  messagesEl.appendChild(b);
+}
+
+document.getElementById('sendBtn').addEventListener('click', sendMsg);
+msgInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendMsg(); });
+
+function sendMsg() {
+  const text = msgInput.value.trim();
+  if (!text || !savedRoom) return;
+  msgInput.value = '';
+  resetInactivity();
+  if (!fbDb || FIREBASE_CONFIG.apiKey === 'PASTE_API_KEY_HERE') {
+    addBubble(text, true, Date.now());
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return;
+  }
+  fbDb.ref('rooms/' + savedRoom + '/messages').push({
+    text, sender: myId,
+    ts: firebase.database.ServerValue.TIMESTAMP
+  });
+}
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  if (!savedRoom || !fbDb) { messagesEl.innerHTML = ''; return; }
+  fbDb.ref('rooms/' + savedRoom + '/messages').remove();
+});
+
+// ── Gallery (decoy) ───────────────────────────────────
+// Photos stored as base64 in localStorage — decoy content that SHOULD persist
+// so it looks like a real, lived-in photo library. Chat messages never touch storage.
+const GALLERY_KEY = '_sw_ph';
+let photos = [], lbId = null;
+
+function loadPhotos() {
+  try { photos = JSON.parse(localStorage.getItem(GALLERY_KEY) || '[]'); } catch { photos = []; }
+}
+function savePhotos() {
+  try { localStorage.setItem(GALLERY_KEY, JSON.stringify(photos)); } catch {}
+}
+function renderGallery() {
+  loadPhotos();
+  const grid = document.getElementById('galleryGrid');
+  grid.querySelectorAll('img').forEach(n => n.remove());
+  const add = document.getElementById('galleryAdd');
+  photos.forEach(p => {
+    const img = document.createElement('img');
+    img.src = p.src;
+    img.addEventListener('click', () => openLightbox(p.id, p.src));
+    grid.insertBefore(img, add);
+  });
+}
+
+document.getElementById('galleryAdd').addEventListener('click', () => {
+  document.getElementById('galleryFile').click();
+});
+document.getElementById('galleryFile').addEventListener('change', async e => {
+  const files = Array.from(e.target.files);
+  e.target.value = '';
+  const add = document.getElementById('galleryAdd');
+  const grid = document.getElementById('galleryGrid');
+  for (const file of files) {
+    const src = await resizeImage(file, 800);
+    const photo = { id: Date.now() + '_' + Math.random(), src };
+    photos.push(photo);
+    const img = document.createElement('img');
+    img.src = src;
+    img.addEventListener('click', () => openLightbox(photo.id, src));
+    grid.insertBefore(img, add);
+  }
+  savePhotos();
+});
+
+function resizeImage(file, max) {
+  return new Promise(res => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const im = new Image();
+      im.onload = () => {
+        let { width: w, height: h } = im;
+        if (w > max || h > max) {
+          if (w > h) { h = Math.round(h * max / w); w = max; }
+          else { w = Math.round(w * max / h); h = max; }
+        }
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(im, 0, 0, w, h);
+        res(c.toDataURL('image/jpeg', 0.82));
+      };
+      im.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function openLightbox(id, src) {
+  lbId = id; lbImg.src = src;
+  lightbox.classList.add('show');
+}
+document.getElementById('lbClose').addEventListener('click', () => lightbox.classList.remove('show'));
+document.getElementById('lbDelete').addEventListener('click', () => {
+  photos = photos.filter(p => p.id !== lbId);
+  savePhotos();
+  lightbox.classList.remove('show');
+  renderGallery();
+});
+
+// ── LOCK MECHANISMS ───────────────────────────────────
+
+// 1. Visibility lock — fires when screen turns off or app is backgrounded
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && overlay.classList.contains('show')) forgetAndHide();
+});
+
+// 2. Inactivity auto-lock
+let inactTimer = null;
+function resetInactivity() {
+  clearTimeout(inactTimer);
+  inactTimer = setTimeout(() => {
+    if (overlay.classList.contains('show')) forgetAndHide();
+  }, INACTIVITY_SECS * 1000);
+}
+function clearInactivity() { clearTimeout(inactTimer); }
+['touchstart', 'mousedown', 'keydown'].forEach(ev =>
+  document.addEventListener(ev, () => {
+    if (overlay.classList.contains('show')) resetInactivity();
+  }, { passive: true })
+);
+
+// 3. Accelerometer grab-lock
+let lastMag = null, motionEnabled = false, motionSeen = false, peakDelta = 0;
+
+function attachAccelerometer() {
+  window.addEventListener('devicemotion', e => {
+    const a = (e.acceleration && e.acceleration.x != null)
+      ? e.acceleration : e.accelerationIncludingGravity;
+    if (!a || a.x == null) return;
+    motionSeen = true;
+    const mag = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
+    if (lastMag !== null) {
+      const delta = Math.abs(mag - lastMag);
+      if (delta > peakDelta) peakDelta = delta;
+      updateDebug(mag, delta);
+      if (delta > GRAB_THRESHOLD && overlay.classList.contains('show')) forgetAndHide();
+    }
+    lastMag = mag;
+  });
+}
+
+function enableAccelerometer() {
+  if (motionEnabled) return;
+  motionEnabled = true;
+  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+    DeviceMotionEvent.requestPermission()
+      .then(s => { if (s === 'granted') attachAccelerometer(); })
+      .catch(() => {});
+  } else if (typeof DeviceMotionEvent !== 'undefined') {
+    attachAccelerometer();
+  }
+}
+
+// 4. Panic zone — double-tap bottom-right corner
+let panicTaps = 0, panicTimer = null;
+document.getElementById('panicZone').addEventListener('click', () => {
+  if (++panicTaps >= 2) { panicTaps = 0; forgetAndHide(); return; }
+  clearTimeout(panicTimer);
+  panicTimer = setTimeout(() => { panicTaps = 0; }, 700);
+});
+
+// ── Sensor debug (tap temperature 5x) ────────────────
+let tempTaps = 0, tempTimer = null;
+wxTemp.addEventListener('click', () => {
+  if (++tempTaps >= 5) {
+    tempTaps = 0; peakDelta = 0;
+    document.getElementById('dbgThresh').value = GRAB_THRESHOLD;
+    document.getElementById('dbgThreshVal').textContent = GRAB_THRESHOLD;
+    document.getElementById('dbgStatus').textContent = motionSeen ? 'Receiving sensor data ✓' : 'Waiting…';
+    debugPanel.classList.add('show');
+    enableAccelerometer();
+    setTimeout(() => {
+      if (!motionSeen) document.getElementById('dbgStatus').textContent =
+        'No data — browser may be blocking sensors. Try a different browser.';
+    }, 3000);
+  }
+  clearTimeout(tempTimer);
+  tempTimer = setTimeout(() => { tempTaps = 0; }, 1500);
+});
+
+function updateDebug(mag, delta) {
+  if (!debugPanel.classList.contains('show')) return;
+  document.getElementById('dbgStatus').textContent = 'Receiving ✓';
+  document.getElementById('dbgMag').textContent = mag.toFixed(1);
+  document.getElementById('dbgDelta').textContent = delta.toFixed(1);
+  document.getElementById('dbgPeak').textContent = peakDelta.toFixed(1);
+}
+
+document.getElementById('dbgThresh').addEventListener('input', e => {
+  GRAB_THRESHOLD = Number(e.target.value);
+  document.getElementById('dbgThreshVal').textContent = GRAB_THRESHOLD;
+});
+document.getElementById('dbgClose').addEventListener('click', () => debugPanel.classList.remove('show'));
+
+// ── Date ──────────────────────────────────────────────
+document.getElementById('wxDate').textContent = new Date().toLocaleDateString(undefined, {
+  weekday: 'long', month: 'long', day: 'numeric'
+});
+</script>
+</body>
+</html>
